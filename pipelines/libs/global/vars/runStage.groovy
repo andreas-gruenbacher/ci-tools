@@ -68,6 +68,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 	    }
 	}
 
+	stage("${stageTitle} on ${agentName} - collect node info") {
 	// Add node-specific properties
 	localinfo += getNodeProperties(agentName)
 
@@ -76,6 +77,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 
 	// Converting ci-tools/ci-set-env to groovy maps
 	localinfo += ci_set_env(localinfo, localinfo['stageName'], agentName)
+	}
 
 	def build_timeout = getBuildTimeout()
 
