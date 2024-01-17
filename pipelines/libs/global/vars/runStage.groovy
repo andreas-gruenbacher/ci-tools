@@ -59,7 +59,10 @@ def doRunStage(String agentName, Map info, Map localinfo)
     // Run stuff!
     node("${agentName}") {
 	echo "Building ${stageTitle} for ${localinfo['project']} on ${agentName} (${localinfo['stageType']})"
-	cleanWs(disableDeferredWipeout: true, deleteDirs: true)
+
+	stage("${stageTitle} on ${agentName} - cleaning workspace") {
+	    cleanWs(disableDeferredWipeout: true, deleteDirs: true)
+	}
 
 	// Save the local workspace directory for later
 	def workspace = env.WORKSPACE + '/' + localinfo['project']
@@ -80,19 +83,21 @@ def doRunStage(String agentName, Map info, Map localinfo)
 		    shNoTrace("exit 1", "Marking this stage as a failure")
 		}
 	    }
+	    stage("${stageTitle} on ${agentName} - collect node info") {
 
-	    // Add node-specific properties
-	    localinfo += getNodeProperties(agentName)
+		// Add node-specific properties
+		localinfo += getNodeProperties(agentName)
 
-	    // Get any job-specific configuration variables
-	    localinfo += getProjectProperties(localinfo, agentName)
+		// Get any job-specific configuration variables
+		localinfo += getProjectProperties(localinfo, agentName)
 
-	    // Converting ci-tools/ci-set-env to groovy maps
-	    localinfo += ci_set_env(localinfo, localinfo['stageName'], agentName)
+		// Converting ci-tools/ci-set-env to groovy maps
+		localinfo += ci_set_env(localinfo, localinfo['stageName'], agentName)
+	    }
 
 	    def build_timeout = getBuildTimeout()
-
 	    def running = true
+
 	    for (stageinfo in stages) {
 		if (running) { // break does weird shit
 		    stage("${stageTitle} on ${agentName} - ${stageinfo.value}") {
@@ -178,6 +183,20 @@ def doRunStage(String agentName, Map info, Map localinfo)
 	    }
 	}
 
+	// Save the log (if it exists)
+	if (stagestate.containsKey('logfile')) {
+	    info['have_split_logs'] = true
+	    dir (env.WORKSPACE) {
+		if (stagestate['failed']) {
+		    sh "mv ${stagestate['logfile']} FAILED_${stagestate['logfile']}"
+		    archiveArtifacts artifacts: "FAILED_${stagestate['logfile']}", fingerprint: false
+		} else {
+		    // Rename the log so we know it all went fine
+		    sh "mv ${stagestate['logfile']} SUCCESS_${stagestate['logfile']}"
+		    archiveArtifacts artifacts: "SUCCESS_${stagestate['logfile']}", fingerprint: false
+		}
+	    }
+	}
 	cleanWs(disableDeferredWipeout: true, deleteDirs: true)
     }
     return true
@@ -185,16 +204,6 @@ def doRunStage(String agentName, Map info, Map localinfo)
 
 def processRunSuccess(Map info, Map localinfo, Map stagestate)
 {
-    // Rename the log so we know it all went fine
-    // The log file might not be there, if getSCM failed.
-    if (stagestate.containsKey('logfile') && stagestate.containsKey('laststage')) {
-	dir(env.WORKSPACE) {
-	    sh "mv ${stagestate['logfile']} SUCCESS_${stagestate['logfile']}"
-	    archiveArtifacts artifacts: "SUCCESS_${stagestate['logfile']}", fingerprint: false
-	    info['have_split_logs'] = true
-	}
-    }
-
     stagestate['failed'] = false
 }
 
@@ -214,15 +223,6 @@ def processRunException(Map info, Map localinfo, Map stagestate)
     info["${localinfo['stageType']}_fail"]++
     info["${localinfo['stageType']}_fail_nodes"] += env.NODE_NAME + "(${localinfo['stageName']} ${runtype})" + ' '
     info["${stage}_failed"] = 1 // One of these failed. that's all we need to know
-
-    // The log file might not be there, if getSCM failed.
-    if (stagestate.containsKey('logfile')) {
-	dir (env.WORKSPACE) {
-	    sh "mv ${stagestate['logfile']} FAILED_${stagestate['logfile']}"
-	    archiveArtifacts artifacts: "FAILED_${stagestate['logfile']}", fingerprint: false
-	    info['have_split_logs'] = true
-	}
-    }
 
     // If the jobs was aborted, then GO AWAY!
     if (stagestate['RET'] == 'ABORT') {
