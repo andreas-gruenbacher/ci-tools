@@ -96,21 +96,16 @@ def call(Map localinfo, String stageName, String agentName)
 	cienv['extraver'] = ''
     }
 
-    // def path = sh(script: "echo \$PATH", returnStdout: true).trim()
     def path = ["bash", "-c", "echo \$PATH"].execute()
     path.waitFor()
     cienv['PATH'] = "/opt/coverity/bin:" + path.text.trim()
-    // def home = sh(script: "echo \$HOME", returnStdout: true).trim()
-    // cienv['PATH'] = "/opt/coverity/bin:${path}:${home}/ci-tools"
-    println(cienv['PATH'])
 
-    return cienv
+    def numcpu = ["bash", "-c", "nproc"].execute()
+    numcpu.waitFor()
 
-    def numcpu = sh(script: "nproc", returnStdout: true).trim()
+    cienv['PARALLELMAKE'] = "-j + " + numcpu.text.trim()
 
-    cienv['PARALLELMAKE'] = "-j ${numcpu}"
-
-    def paralleloutput = sh(script: """
+    def paralleloutput = ["bash", "-c", """
 				    rm -f Makefile.stub
 				    echo "all:" > Makefile.stub
 				    PARALLELOUTPUT=""
@@ -122,9 +117,13 @@ def call(Map localinfo, String stageName, String agentName)
 				    fi
 				    rm -f Makefile.stub
 				    echo \$PARALLELOUTPUT
-				    """, returnStdout: true).trim()
+				    """].execute()
+    paralleloutput.waitFor()
 
-    cienv['PARALLELMAKE'] = "-j ${numcpu} ${paralleloutput}"
+    cienv['PARALLELMAKE'] = "-j " + numcpu.text.trim() + " " + paralleloutput.text.trim()
+
+    println("DEBUG ${cienv['PARALLELMAKE']}")
+    return cienv
 
     // pacemaker version handling
     // Latest Pacemaker release branch
