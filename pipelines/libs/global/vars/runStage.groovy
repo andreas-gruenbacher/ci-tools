@@ -51,7 +51,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
     def stages = [:]
     stages['ci-build-info'] = 'Build info'
     stages['ci-setup-rpm'] = 'Setup RPM'
-    stages['ci-setup-src'] = 'Setup Source'
+    stages['ci-setup-srcXX'] = 'Setup Source'
     stages['ci-build-src'] = 'Build Source'
     stages['ci-tests-src'] = 'Run Tests'
     stages['ci-install-src'] = 'Install'
