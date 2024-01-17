@@ -102,6 +102,9 @@ def call(Map localinfo, String stageName, String agentName)
     cienv['PATH'] = "/opt/coverity/bin:" + path.text.trim()
     // def home = sh(script: "echo \$HOME", returnStdout: true).trim()
     // cienv['PATH'] = "/opt/coverity/bin:${path}:${home}/ci-tools"
+    println(cienv['PATH'])
+
+    return cienv
 
     def numcpu = sh(script: "nproc", returnStdout: true).trim()
 
