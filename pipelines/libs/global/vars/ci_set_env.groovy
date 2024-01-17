@@ -96,8 +96,10 @@ def call(Map localinfo, String stageName, String agentName)
 	cienv['extraver'] = ''
     }
 
-    def path = sh(script: "echo \$PATH", returnStdout: true).trim()
-    cienv['PATH'] = "/opt/coverity/bin:${path}"
+    // def path = sh(script: "echo \$PATH", returnStdout: true).trim()
+    def path = ["bash", "-c", "echo \$PATH"].execute().trim
+    path.waitFor()
+    cienv['PATH'] = "/opt/coverity/bin:${path.text}"
     // def home = sh(script: "echo \$HOME", returnStdout: true).trim()
     // cienv['PATH'] = "/opt/coverity/bin:${path}:${home}/ci-tools"
 
