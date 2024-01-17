@@ -1,3 +1,4 @@
+@NonCPS
 def ldadd(String project, String deps, String INSTALL_PATH, Boolean allow_os_package, Map cienvinfo)
 {
     def varmap = [:]
@@ -53,6 +54,7 @@ def ldadd(String project, String deps, String INSTALL_PATH, Boolean allow_os_pac
     return varmap
 }
 
+@NonCPS
 def call(Map localinfo, String stageName, String agentName)
 {
     def cienv = [:]
