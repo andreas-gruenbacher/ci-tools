@@ -48,6 +48,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
     }
 
     // Things to run - in order
+    // groovy uses a LinkedHashMap so they retain insertion order
     def stages = [:]
     stages['ci-build-info'] = 'Build info'
     stages['ci-setup-rpm'] = 'Setup RPM'
@@ -117,6 +118,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 			    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
 				shNoTrace("exit 1", "Marking this stage as a failure")
 			    }
+			    // Stop it here if a stage fails
 			    running = false
 			}
 		    }
@@ -129,6 +131,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 	    info['have_split_logs'] = true
 	    dir (env.WORKSPACE) {
 		if (stagestate['failed']) {
+		    // Rename the log so we know it all went badly
 		    sh "mv ${stagestate['logfile']} FAILED_${stagestate['logfile']}"
 		    archiveArtifacts artifacts: "FAILED_${stagestate['logfile']}", fingerprint: false
 		} else {
