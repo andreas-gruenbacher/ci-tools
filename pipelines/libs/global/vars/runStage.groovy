@@ -66,9 +66,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 
 	// Save the local workspace directory for later
 	def workspace = env.WORKSPACE + '/' + localinfo['project']
-
 	info["${localinfo['stageType']}_run"]++
-
 	stagestate['logfile'] = "${localinfo['stageName']}-${agentName}.log"
 
 	tee (stagestate['logfile']) {
@@ -83,6 +81,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 		    shNoTrace("exit 1", "Marking this stage as a failure")
 		}
 	    }
+
 	    stage("${stageTitle} on ${agentName} - collect node info") {
 
 		// Add node-specific properties
@@ -95,6 +94,7 @@ def doRunStage(String agentName, Map info, Map localinfo)
 		localinfo += ci_set_env(localinfo, localinfo['stageName'], agentName)
 	    }
 
+	    def exports = getShellVariables(localinfo)
 	    def build_timeout = getBuildTimeout()
 	    def running = true
 
@@ -106,7 +106,6 @@ def doRunStage(String agentName, Map info, Map localinfo)
 			// Keep the log in a separate file so they are easy to find
 			// Run everything in the checked-out directory
 			dir (localinfo['project']) {
-			    def exports = getShellVariables(localinfo)
 			    cmdWithTimeout(build_timeout,
 					   "${exports} $HOME/ci-tools/ci-wrap ${stageinfo.key}",
 					   stagestate,
@@ -121,6 +120,21 @@ def doRunStage(String agentName, Map info, Map localinfo)
 			    running = false
 			}
 		    }
+		}
+	    }
+	}
+
+	// Save the log (if it exists)
+	if (stagestate.containsKey('logfile')) {
+	    info['have_split_logs'] = true
+	    dir (env.WORKSPACE) {
+		if (stagestate['failed']) {
+		    sh "mv ${stagestate['logfile']} FAILED_${stagestate['logfile']}"
+		    archiveArtifacts artifacts: "FAILED_${stagestate['logfile']}", fingerprint: false
+		} else {
+		    // Rename the log so we know it all went fine
+		    sh "mv ${stagestate['logfile']} SUCCESS_${stagestate['logfile']}"
+		    archiveArtifacts artifacts: "SUCCESS_${stagestate['logfile']}", fingerprint: false
 		}
 	    }
 	}
@@ -183,21 +197,9 @@ def doRunStage(String agentName, Map info, Map localinfo)
 	    }
 	}
 
-	// Save the log (if it exists)
-	if (stagestate.containsKey('logfile')) {
-	    info['have_split_logs'] = true
-	    dir (env.WORKSPACE) {
-		if (stagestate['failed']) {
-		    sh "mv ${stagestate['logfile']} FAILED_${stagestate['logfile']}"
-		    archiveArtifacts artifacts: "FAILED_${stagestate['logfile']}", fingerprint: false
-		} else {
-		    // Rename the log so we know it all went fine
-		    sh "mv ${stagestate['logfile']} SUCCESS_${stagestate['logfile']}"
-		    archiveArtifacts artifacts: "SUCCESS_${stagestate['logfile']}", fingerprint: false
-		}
-	    }
+	stage("${stageTitle} on ${agentName} - cleanup") {
+	    cleanWs(disableDeferredWipeout: true, deleteDirs: true)
 	}
-	cleanWs(disableDeferredWipeout: true, deleteDirs: true)
     }
     return true
 }
