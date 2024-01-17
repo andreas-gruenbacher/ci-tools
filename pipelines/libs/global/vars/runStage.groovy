@@ -47,6 +47,15 @@ def doRunStage(String agentName, Map info, Map localinfo)
 	stageTitle = localinfo['title']
     }
 
+    // Things to run - in order
+    def stages = [:]
+    stages['ci-build-info'] = 'Build info'
+    stages['ci-setup-rpm'] = 'Setup RPM'
+    stages['ci-setup-src'] = 'Setup Source'
+    stages['ci-build-src'] = 'Build Source'
+    stages['ci-tests-src'] = 'Run Tests'
+    stages['ci-install-src'] = 'Install'
+
     // Run stuff!
     node("${agentName}") {
 	echo "Building ${stageTitle} for ${localinfo['project']} on ${agentName} (${localinfo['stageType']})"
@@ -56,49 +65,57 @@ def doRunStage(String agentName, Map info, Map localinfo)
 	def workspace = env.WORKSPACE + '/' + localinfo['project']
 
 	info["${localinfo['stageType']}_run"]++
-	stage("${stageTitle} on ${agentName} - checkout") {
-	    stagestate['runstage'] = 'checkout'
-	    def rc = runWithTimeout(collect_timeout, { getSCM(info) }, stagestate,
-				    { processRunSuccess(info, localinfo, stagestate) },
-				    { processRunException(info, localinfo, stagestate) })
-	    if (rc != 'OK') {
-		println("RC runWithTimeout returned "+rc)
-		// Big stick here, we can't continue
-		sh "exit 1"
-	    }
-	}
 
-	// Add node-specific properties
-	localinfo += getNodeProperties(agentName)
+	stagestate['logfile'] = "${localinfo['stageName']}-${agentName}.log"
 
-	// Get any job-specific configuration variables
-	localinfo += getProjectProperties(localinfo, agentName)
-
-	// Converting ci-tools/ci-set-env to groovy maps
-	localinfo += ci_set_env(localinfo, localinfo['stageName'], agentName)
-
-	def build_timeout = getBuildTimeout()
-
-	stage("${stageTitle} on ${agentName} - build") {
-	    stagestate['logfile'] = "${localinfo['stageName']}-${agentName}.log"
-	    stagestate['runstage'] = 'run'
-
-	    // Keep the log in a separate file so they are easy to find
-	    tee (stagestate['logfile']) {
-		// Run everything in the checked-out directory
-		dir (localinfo['project']) {
-		    def exports = getShellVariables(localinfo)
-		    cmdWithTimeout(build_timeout,
-				   "${exports} $HOME/ci-tools/ci-wrap ci-build",
-				   stagestate,
-				   { processRunSuccess(info, localinfo, stagestate) },
-				   { processRunException(info, localinfo, stagestate) })
+	tee (stagestate['logfile']) {
+	    stage("${stageTitle} on ${agentName} - checkout") {
+		stagestate['runstage'] = 'checkout'
+		def rc = runWithTimeout(collect_timeout, { getSCM(info) }, stagestate,
+					{ processRunSuccess(info, localinfo, stagestate) },
+					{ processRunException(info, localinfo, stagestate) })
+		if (rc != 'OK') {
+		    println("RC runWithTimeout returned "+rc)
+		    // Big stick here, we can't continue
+		    shNoTrace("exit 1", "Marking this stage as a failure")
 		}
 	    }
-	    // This marks it red in the graph view
-	    if (stagestate['failed']) {
-		catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-		    shNoTrace("exit 1", "Marking this stage as a failure")
+
+	    // Add node-specific properties
+	    localinfo += getNodeProperties(agentName)
+
+	    // Get any job-specific configuration variables
+	    localinfo += getProjectProperties(localinfo, agentName)
+
+	    // Converting ci-tools/ci-set-env to groovy maps
+	    localinfo += ci_set_env(localinfo, localinfo['stageName'], agentName)
+
+	    def build_timeout = getBuildTimeout()
+
+	    def running = true
+	    for (stageinfo in stages) {
+		if (running) { // break does weird shit
+		    stage("${stageTitle} on ${agentName} - ${stageinfo.value}") {
+			stagestate['runstage'] = stageinfo.value
+
+			// Keep the log in a separate file so they are easy to find
+			// Run everything in the checked-out directory
+			dir (localinfo['project']) {
+			    def exports = getShellVariables(localinfo)
+			    cmdWithTimeout(build_timeout,
+					   "${exports} $HOME/ci-tools/ci-wrap ${stageinfo.key}",
+					   stagestate,
+					   { processRunSuccess(info, localinfo, stagestate) },
+					   { processRunException(info, localinfo, stagestate) })
+			}
+			// This marks it red in the graph view
+			if (stagestate['failed']) {
+			    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+				shNoTrace("exit 1", "Marking this stage as a failure")
+			    }
+			    running = false
+			}
+		    }
 		}
 	    }
 	}
@@ -170,8 +187,8 @@ def processRunSuccess(Map info, Map localinfo, Map stagestate)
 {
     // Rename the log so we know it all went fine
     // The log file might not be there, if getSCM failed.
-    if (stagestate.containsKey('logfile')) {
-	dir('..') {
+    if (stagestate.containsKey('logfile') && stagestate.containsKey('laststage')) {
+	dir(env.WORKSPACE) {
 	    sh "mv ${stagestate['logfile']} SUCCESS_${stagestate['logfile']}"
 	    archiveArtifacts artifacts: "SUCCESS_${stagestate['logfile']}", fingerprint: false
 	    info['have_split_logs'] = true
@@ -191,18 +208,16 @@ def processRunException(Map info, Map localinfo, Map stagestate)
     // as environment variable names.
     def stage = localinfo['stageName'].replace('-','_')
 
-    def runtype = ''
-    if (stagestate['runstage'] == 'checkout') {
-	runtype = ' source download'
-    }
+    def runtype = stagestate['runstage']
+
     // Stats, and save the job name for the email
     info["${localinfo['stageType']}_fail"]++
-    info["${localinfo['stageType']}_fail_nodes"] += env.NODE_NAME + "(${localinfo['stageName']}${runtype})" + ' '
+    info["${localinfo['stageType']}_fail_nodes"] += env.NODE_NAME + "(${localinfo['stageName']} ${runtype})" + ' '
     info["${stage}_failed"] = 1 // One of these failed. that's all we need to know
 
     // The log file might not be there, if getSCM failed.
     if (stagestate.containsKey('logfile')) {
-	dir ('..') {
+	dir (env.WORKSPACE) {
 	    sh "mv ${stagestate['logfile']} FAILED_${stagestate['logfile']}"
 	    archiveArtifacts artifacts: "FAILED_${stagestate['logfile']}", fingerprint: false
 	    info['have_split_logs'] = true
